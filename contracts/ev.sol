@@ -9,10 +9,10 @@ contract Voting {
 
     struct Voter {
         // string voterID;
-        // bool isRegistered;
+        bool isRegistered;
         bool voted;
         uint256 vote;
-        uint256 constituencyIndex;
+        // uint256 constituencyIndex;
     }
     
     struct Constituency {
@@ -76,6 +76,11 @@ contract Voting {
     //         constituencyIndex: constIndex
     //     }));
     // }
+    function registerVoter(address _voter) public onlyOwner {
+        require(!voters[_voter].isRegistered, "Voter is already registered");
+        voters[_voter] = Voter(true, false, 0);
+        // emit VoterRegistered(_voter);
+        }
 
     function startVoting() public onlyOwner {
         require(!votingOpen, "Voting has already started");
