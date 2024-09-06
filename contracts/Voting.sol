@@ -1,130 +1,119 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.13;
 
-contract Voting {
+contract VotingSystem {
     struct Candidate {
         string name;
         uint256 voteCount;
     }
 
     struct Voter {
-        // string voterID;
         bool isRegistered;
-        bool voted;
-        uint256 vote;
-        // uint256 constituencyIndex;
-    }
-    
-    struct Constituency {
-        uint256 index;
+        bool hasVoted;
+        uint256 votedCandidateIndex;
     }
 
-    address public owner;
+    address public admin;
     mapping(address => Voter) public voters;
     Candidate[] public candidates;
-    bool public votingOpen;
-    bool public votingEnded;
+    uint256 public votingStart;
+    uint256 public votingEnd;
 
-    // Events
-    event CandidateAdded(string candidateName);
-    event VotingStarted();
+    event CandidateAdded(string name);
+    event VoterRegistered(address voter);
     event VoteCast(address voter, uint256 candidateIndex);
-    event VotingEnded();
-    event WinnerDeclared(string winnerName, uint256 winnerVoteCount);
-    event MajorityReached();
-    
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only the owner can perform this action");
+    event VotingStarted(uint256 startTime, uint256 endTime);
+    event VotingEnded(string winningCandidateName, uint256 winningVoteCount);
+
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "Only admin can perform this action");
         _;
     }
 
-    modifier votingIsOpen() {
-        require(votingOpen, "Voting is not open");
-        require(!votingEnded, "Voting has ended");
+    modifier votingNotStarted() {
+        require(votingStart == 0, "Voting has already started");
+        _;
+    }
+
+    modifier duringVotingPeriod() {
+        require(
+            votingStart != 0 && block.timestamp >= votingStart && block.timestamp <= votingEnd,
+            "Not within voting period"
+        );
         _;
     }
 
     constructor() {
-        owner = msg.sender;
+        require(msg.sender != address(0), "Invalid deployer address");
+        admin = msg.sender;
+        votingStart = 0;
+        votingEnd = 0;
     }
 
-    // function addVoter(string votID, uint256 constIndex) public onlyOwner {
-    //     require(!votingOpen, "Cannot add voters after voting has started");
-    //     voters.push(Voter({
-    //         voterID: votID,
-    //         voted: false,
-    //         vote: -1,
-    //         constituencyIndex: constIndex 
-    //     }));
-    //     emit VoterAdded();
-    // }
-       function addCandidate(string memory candidateName) public onlyOwner {
-        require(!votingOpen, "Cannot add candidates after voting has started");
+    function addCandidate(string memory _name) public onlyAdmin votingNotStarted {
+        require(bytes(_name).length > 0, "Candidate name cannot be empty");
         candidates.push(Candidate({
-            name: candidateName,
+            name: _name,
             voteCount: 0
         }));
-        emit CandidateAdded(candidateName);
+        emit CandidateAdded(_name);
     }
 
-    // function registerVoter(address _voter, uint256 constIndex) public onlyOwner{
-    //     // require(!voters[_voter].isRegistered, "Voter is already registered");
-    //     voters.push(Voter({
-    //         // isRegistered: true,
-    //         voted: false,
-    //         vote: -1,
-    //         constituencyIndex: constIndex
-    //     }));
-    // }
-    function registerVoter(address _voter) public onlyOwner {
-        require(!voters[_voter].isRegistered, "Voter is already registered");
-        voters[_voter] = Voter(true, false, 0);
-        // emit VoterRegistered(_voter);
-        }
-
-    function startVoting() public onlyOwner {
-        require(!votingOpen, "Voting has already started");
-        votingOpen = true;
-        emit VotingStarted();
+    function registerVoter(address _voter) public onlyAdmin votingNotStarted {
+        require(_voter != address(0), "Invalid voter address");
+        require(!voters[_voter].isRegistered, "Voter already registered");
+        voters[_voter] = Voter({
+            isRegistered: true,
+            hasVoted: false,
+            votedCandidateIndex: 0
+        });
+        emit VoterRegistered(_voter);
     }
 
-    function vote(uint256 candidateIndex) public votingIsOpen {
-        require(!voters[msg.sender].voted, "You have already voted");
-        require(candidateIndex < candidates.length, "Invalid candidate index");
-
-        voters[msg.sender].voted = true;
-        voters[msg.sender].vote = candidateIndex;
-        candidates[candidateIndex].voteCount += 1;
-
-        emit VoteCast(msg.sender, candidateIndex);
+    function startVoting(uint256 _durationInMinutes) public onlyAdmin votingNotStarted {
+        require(candidates.length >= 2, "At least two candidates required");
+        require(_durationInMinutes > 0, "Duration should be greater than 0");
+        votingStart = block.timestamp;
+        votingEnd = votingStart + (_durationInMinutes * 1 minutes);
+        emit VotingStarted(votingStart, votingEnd);
     }
 
-    function endVoting() public onlyOwner votingIsOpen {
-        votingEnded = true;
-        votingOpen = false;
-        emit VotingEnded();
+    function vote(uint256 _candidateIndex) public duringVotingPeriod {
+        Voter storage sender = voters[msg.sender];
+        require(sender.isRegistered, "Not registered to vote");
+        require(!sender.hasVoted, "Already voted");
+        require(_candidateIndex < candidates.length, "Invalid candidate index");
+
+        sender.hasVoted = true;
+        sender.votedCandidateIndex = _candidateIndex;
+        candidates[_candidateIndex].voteCount++;
+
+        emit VoteCast(msg.sender, _candidateIndex);
     }
 
-    function getWinner() public returns (string memory winnerName, uint256 winnerVoteCount) {
-        require(votingEnded, "Voting is still ongoing");
+    function endVoting() public onlyAdmin {
+        require(block.timestamp > votingEnd, "Voting period not yet over");
+        require(votingStart != 0, "Voting never started");
 
         uint256 winningVoteCount = 0;
-        uint256 winningIndex = 0;
-
+        uint256 winningCandidateIndex = 0;
         for (uint256 i = 0; i < candidates.length; i++) {
             if (candidates[i].voteCount > winningVoteCount) {
                 winningVoteCount = candidates[i].voteCount;
-                winningIndex = i;
+                winningCandidateIndex = i;
             }
         }
 
-        winnerName = candidates[winningIndex].name;
-        winnerVoteCount = winningVoteCount;
-
-        emit WinnerDeclared(winnerName, winnerVoteCount);
+        emit VotingEnded(candidates[winningCandidateIndex].name, winningVoteCount);
     }
 
-    function getCandidates() public view returns (Candidate[] memory) {
-        return candidates;
+    function getCandidateCount() public view returns (uint256) {
+        return candidates.length;
+    }
+
+    function getVotingTimeRemaining() public view returns (uint256) {
+        if (block.timestamp >= votingEnd) return 0;
+        if (block.timestamp < votingStart) return votingEnd - votingStart;
+        return votingEnd - block.timestamp;
     }
 }

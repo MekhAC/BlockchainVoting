@@ -2,7 +2,7 @@
   "name": "blockchainvoting",
   "version": "1.0.0",
   "description": "Blockchain minor project",
-  "main": "index.js",
+  "main": "truffle-config.js",
   "directories": {
     "test": "test"
   },
